@@ -1,6 +1,22 @@
+# Dependencies
 node_modules/
-backend/freshmart.db
-*.log
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
 app/android/
-app/node_modules/
+app/ios/

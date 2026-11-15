@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>FreshMart POS</title>
+  <title>FreshMart Multi-Store POS</title>
   <style>
     :root {
       --primary: #059669; --primary-dark: #047857; --primary-light: #d1fae5;
@@ -13,15 +13,32 @@
       --whatsapp: #16a34a;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* Auth Screen */
+    .auth-wrap {
+      min-height: 100vh; display: grid; place-items: center; padding: 16px;
+      background: linear-gradient(135deg, #064e3b 0%, #059669 100%);
+    }
+    .auth-card {
+      background: #fff; border-radius: 14px; width: 100%; max-width: 440px;
+      padding: 24px; box-shadow: 0 20px 30px rgba(0,0,0,0.2);
+    }
+    .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0; background: #f3f4f6; padding: 4px; border-radius: 9px; }
+    .auth-tab { padding: 8px; border: none; border-radius: 7px; font-weight: 700; font-size: 13px; cursor: pointer; background: transparent; color: var(--muted); }
+    .auth-tab.active { background: #fff; color: var(--primary-dark); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+
+    /* App Shell */
+    .app-shell { display: none; min-height: 100vh; }
+    .app-shell.active { display: flex; }
 
     .sidebar {
-      width: 235px; background: #064e3b; color: #fff;
+      width: 240px; background: #064e3b; color: #fff;
       display: flex; flex-direction: column; padding: 18px 12px; flex-shrink: 0;
     }
     .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.14); margin-bottom: 14px; }
     .brand-icon { width: 38px; height: 38px; border-radius: 10px; background: #10b981; display: grid; place-items: center; font-size: 20px; }
-    .brand h1 { font-size: 16px; font-weight: 700; }
+    .brand h1 { font-size: 15px; font-weight: 700; word-break: break-word; }
     .brand span { font-size: 11px; color: #a7f3d0; }
 
     .nav-btn {
@@ -57,6 +74,7 @@
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-wa { background: var(--whatsapp); color: #fff; }
     .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger); color: #fff; }
     .btn-sm { padding: 5px 9px; font-size: 12px; }
 
     input, select { padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--text); width: 100%; }
@@ -132,171 +150,223 @@
 </head>
 <body>
 
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-icon">🛒</div>
-      <div><h1 id="sideShopName">FreshMart</h1><span>GST & Khata POS</span></div>
-    </div>
-    <button class="nav-btn active" data-view="dashboard" onclick="switchView('dashboard')">📊 Dashboard</button>
-    <button class="nav-btn" data-view="pos" onclick="switchView('pos')">🧾 GST Billing (POS)</button>
-    <button class="nav-btn" data-view="inventory" onclick="switchView('inventory')">📦 Inventory <span class="nav-badge" id="alertBadge" style="display:none">0</span></button>
-    <button class="nav-btn" data-view="khata" onclick="switchView('khata')">📒 Khata & WhatsApp</button>
-    <button class="nav-btn" data-view="sales" onclick="switchView('sales')">💰 Sales & Tax</button>
-    <button class="nav-btn" data-view="settings" onclick="switchView('settings')">⚙️ Shop Settings</button>
-  </aside>
-
-  <nav class="mobile-nav">
-    <button class="m-btn active" data-view="dashboard" onclick="switchView('dashboard')"><span>📊</span>Home</button>
-    <button class="m-btn" data-view="pos" onclick="switchView('pos')"><span>🧾</span>Bill</button>
-    <button class="m-btn" data-view="inventory" onclick="switchView('inventory')"><span>📦</span>Stock</button>
-    <button class="m-btn" data-view="khata" onclick="switchView('khata')"><span>📒</span>Khata</button>
-    <button class="m-btn" data-view="settings" onclick="switchView('settings')"><span>⚙️</span>Setup</button>
-  </nav>
-
-  <main class="main">
-    <div class="topbar">
-      <div>
-        <h2 id="pageTitle">Dashboard</h2>
-        <span id="connStatus" class="status-pill status-ok">● Synced with SQLite</span>
-      </div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-outline btn-sm" onclick="loadAllData()">↻ Sync</button>
-        <button class="btn btn-primary btn-sm" onclick="switchView('pos')">+ New GST Bill</button>
-      </div>
-    </div>
-
-    <section id="view-dashboard" class="view active">
-      <div class="stats-grid">
-        <div class="stat-card"><div class="stat-label">Today's Sales</div><div class="stat-val" id="statTodaySales">₹0</div><div class="stat-note" id="statTodayBills">0 bills</div></div>
-        <div class="stat-card"><div class="stat-label">Today's Net Profit</div><div class="stat-val" style="color:var(--primary)" id="statTodayProfit">₹0</div><div class="stat-note">Excl. GST</div></div>
-        <div class="stat-card"><div class="stat-label">Pending Khata</div><div class="stat-val" style="color:var(--warning)" id="statTotalCredit">₹0</div><div class="stat-note" id="statCreditCustomers">0 customers</div></div>
-        <div class="stat-card"><div class="stat-label">Today's GST Collected</div><div class="stat-val" id="statTodayGst">₹0</div><div class="stat-note">CGST + SGST</div></div>
+  <!-- LOGIN / REGISTER STORE SCREEN -->
+  <section id="authView" class="auth-wrap">
+    <div class="auth-card">
+      <div style="text-align:center;">
+        <div style="font-size:34px;">🛒</div>
+        <h2 style="font-size:20px; font-weight:800; color:#064e3b;">FreshMart Multi-Store POS</h2>
+        <p style="font-size:12px; color:var(--muted);">Each store has its own private inventory, GST bills & Khata</p>
       </div>
 
-      <div class="two-col">
-        <div class="card"><div class="card-header"><span class="card-title">⚠️ Low Stock Alerts</span></div><div id="lowStockList"></div></div>
-        <div class="card"><div class="card-header"><span class="card-title">⏳ Expiry Alerts (≤7 Days)</span></div><div id="expiryAlertList"></div></div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="toggleAuthMode('login')">Store Login</button>
+        <button class="auth-tab" id="tabRegister" onclick="toggleAuthMode('register')">Register New Store</button>
       </div>
-    </section>
 
-    <section id="view-pos" class="view">
-      <div class="pos-layout">
-        <div class="card">
-          <input type="text" id="posSearch" placeholder="🔍 Search product or scan SKU & press Enter..." oninput="renderPOS()" onkeydown="handleBarcodeEnter(event)" />
-          <div class="cat-pills" id="posCatPills"></div>
-          <div class="product-grid" id="posProductGrid"></div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>Cloud / Server URL (Leave blank if opened directly in browser)</label>
+        <input type="text" id="authApiUrl" placeholder="e.g. https://your-shop.onrender.com" />
+      </div>
+
+      <!-- LOGIN FORM -->
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>Store Email</label>
+          <input type="email" id="loginEmail" required placeholder="store@example.com" />
         </div>
+        <div class="form-group" style="margin-bottom:14px;">
+          <label>Password</label>
+          <input type="password" id="loginPass" required placeholder="••••••" />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;">🔓 Login to Store</button>
+      </form>
 
+      <!-- REGISTER FORM -->
+      <form id="registerForm" style="display:none;" onsubmit="handleRegister(event)">
+        <div class="form-grid" style="margin-top:0;">
+          <div class="form-group full"><label>Store / Shop Name *</label><input type="text" id="regShop" required placeholder="e.g. Sharma Kirana Store" /></div>
+          <div class="form-group"><label>Owner Name</label><input type="text" id="regOwner" placeholder="e.g. Rajesh Sharma" /></div>
+          <div class="form-group"><label>Phone</label><input type="text" id="regPhone" placeholder="9876543210" /></div>
+          <div class="form-group full"><label>Store Email (used for login) *</label><input type="email" id="regEmail" required placeholder="sharma@store.com" /></div>
+          <div class="form-group"><label>Password (min 4 chars) *</label><input type="password" id="regPass" required minlength="4" /></div>
+          <div class="form-group"><label>UPI ID (Optional)</label><input type="text" id="regUpi" placeholder="sharma@upi" /></div>
+          <div class="form-group full"><label>GSTIN (Optional)</label><input type="text" id="regGstin" placeholder="27ABCDE1234F1Z5" /></div>
+          <div class="form-group full" style="flex-direction:row; align-items:center; gap:8px;">
+            <input type="checkbox" id="regDemo" checked style="width:auto;" />
+            <label for="regDemo" style="font-size:12px; color:var(--text);">Preload 5 sample grocery items</label>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;">🏪 Create Store Account</button>
+      </form>
+      <p id="authErr" style="color:var(--danger); font-size:12px; margin-top:10px; text-align:center;"></p>
+    </div>
+  </section>
+
+  <!-- MAIN APP SHELL -->
+  <div id="appShell" class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">🛒</div>
+        <div><h1 id="sideShopName">FreshMart</h1><span id="sideStoreId">Store #1</span></div>
+      </div>
+      <button class="nav-btn active" data-view="dashboard" onclick="switchView('dashboard')">📊 Dashboard</button>
+      <button class="nav-btn" data-view="pos" onclick="switchView('pos')">🧾 GST Billing (POS)</button>
+      <button class="nav-btn" data-view="inventory" onclick="switchView('inventory')">📦 Inventory <span class="nav-badge" id="alertBadge" style="display:none">0</span></button>
+      <button class="nav-btn" data-view="khata" onclick="switchView('khata')">📒 Khata & WhatsApp</button>
+      <button class="nav-btn" data-view="sales" onclick="switchView('sales')">💰 Sales & Tax</button>
+      <button class="nav-btn" data-view="settings" onclick="switchView('settings')">⚙️ Shop Settings</button>
+      <button class="nav-btn" style="margin-top:auto; color:#fca5a5;" onclick="logoutStore()">🚪 Switch / Logout</button>
+    </aside>
+
+    <nav class="mobile-nav">
+      <button class="m-btn active" data-view="dashboard" onclick="switchView('dashboard')"><span>📊</span>Home</button>
+      <button class="m-btn" data-view="pos" onclick="switchView('pos')"><span>🧾</span>Bill</button>
+      <button class="m-btn" data-view="inventory" onclick="switchView('inventory')"><span>📦</span>Stock</button>
+      <button class="m-btn" data-view="khata" onclick="switchView('khata')"><span>📒</span>Khata</button>
+      <button class="m-btn" data-view="settings" onclick="switchView('settings')"><span>⚙️</span>Setup</button>
+    </nav>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h2 id="pageTitle">Dashboard</h2>
+          <span id="connStatus" class="status-pill status-ok">● Cloud Synced</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline btn-sm" onclick="loadAllData()">↻ Sync</button>
+          <button class="btn btn-primary btn-sm" onclick="switchView('pos')">+ New Bill</button>
+        </div>
+      </div>
+
+      <section id="view-dashboard" class="view active">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Today's Sales</div><div class="stat-val" id="statTodaySales">₹0</div><div class="stat-note" id="statTodayBills">0 bills</div></div>
+          <div class="stat-card"><div class="stat-label">Today's Net Profit</div><div class="stat-val" style="color:var(--primary)" id="statTodayProfit">₹0</div><div class="stat-note">Excl. GST</div></div>
+          <div class="stat-card"><div class="stat-label">Pending Khata</div><div class="stat-val" style="color:var(--warning)" id="statTotalCredit">₹0</div><div class="stat-note" id="statCreditCustomers">0 customers</div></div>
+          <div class="stat-card"><div class="stat-label">Today's GST</div><div class="stat-val" id="statTodayGst">₹0</div><div class="stat-note">CGST + SGST</div></div>
+        </div>
+        <div class="two-col">
+          <div class="card"><div class="card-header"><span class="card-title">⚠️ Low Stock Alerts</span></div><div id="lowStockList"></div></div>
+          <div class="card"><div class="card-header"><span class="card-title">⏳ Expiry Alerts (≤7 Days)</span></div><div id="expiryAlertList"></div></div>
+        </div>
+      </section>
+
+      <section id="view-pos" class="view">
+        <div class="pos-layout">
+          <div class="card">
+            <input type="text" id="posSearch" placeholder="🔍 Search product or scan SKU & press Enter..." oninput="renderPOS()" onkeydown="handleBarcodeEnter(event)" />
+            <div class="cat-pills" id="posCatPills"></div>
+            <div class="product-grid" id="posProductGrid"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">🧾 GST Bill</span>
+              <button class="btn btn-outline btn-sm" onclick="clearCart()">Clear</button>
+            </div>
+            <div id="cartItems" style="max-height:32vh; overflow-y:auto;"></div>
+            <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
+              <div class="summary-line"><span>Taxable Value</span><span id="cartTaxable">₹0.00</span></div>
+              <div class="summary-line"><span>CGST + SGST</span><span id="cartGst">₹0.00</span></div>
+              <div class="summary-line" style="align-items:center;">
+                <span>Bill Discount</span>
+                <input type="number" id="cartDiscount" value="0" min="0" style="width:85px; padding:4px 7px; text-align:right;" oninput="renderCart()" />
+              </div>
+              <div class="summary-line summary-total"><span>Payable</span><span id="cartTotal">₹0.00</span></div>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Payment Mode</label>
+                <select id="payMode" onchange="toggleKhataSelect()">
+                  <option value="Cash">💵 Cash</option><option value="UPI">📱 UPI</option>
+                  <option value="Card">💳 Card</option><option value="Credit">📒 Credit (Khata)</option>
+                </select>
+              </div>
+              <div class="form-group" id="khataCustBox" style="display:none;">
+                <label>Khata Customer</label>
+                <select id="posCustomerSelect"></select>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;" onclick="completeSale()">✅ Generate GST Invoice</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-inventory" class="view">
         <div class="card">
           <div class="card-header">
-            <span class="card-title">🧾 GST Bill</span>
-            <button class="btn btn-outline btn-sm" onclick="clearCart()">Clear</button>
+            <input type="text" id="invSearch" placeholder="🔍 Search inventory..." style="max-width:250px;" oninput="renderInventory()" />
+            <button class="btn btn-primary btn-sm" onclick="openProductModal()">+ Add Product</button>
           </div>
-          <div id="cartItems" style="max-height:32vh; overflow-y:auto;"></div>
-
-          <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
-            <div class="summary-line"><span>Taxable Value</span><span id="cartTaxable">₹0.00</span></div>
-            <div class="summary-line"><span>CGST + SGST</span><span id="cartGst">₹0.00</span></div>
-            <div class="summary-line" style="align-items:center;">
-              <span>Bill Discount</span>
-              <input type="number" id="cartDiscount" value="0" min="0" style="width:85px; padding:4px 7px; text-align:right;" oninput="renderCart()" />
-            </div>
-            <div class="summary-line summary-total"><span>Payable</span><span id="cartTotal">₹0.00</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Item / HSN</th><th>GST%</th><th>Price</th><th>Stock</th><th>Expiry</th><th>Actions</th></tr></thead>
+              <tbody id="inventoryTable"></tbody>
+            </table>
           </div>
+        </div>
+      </section>
 
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Payment Mode</label>
-              <select id="payMode" onchange="toggleKhataSelect()">
-                <option value="Cash">💵 Cash</option>
-                <option value="UPI">📱 UPI</option>
-                <option value="Card">💳 Card</option>
-                <option value="Credit">📒 Credit (Khata)</option>
-              </select>
-            </div>
-            <div class="form-group" id="khataCustBox" style="display:none;">
-              <label>Khata Customer</label>
-              <select id="posCustomerSelect"></select>
-            </div>
+      <section id="view-khata" class="view">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📒 Customer Credit Book (Khata)</span>
+            <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
           </div>
-          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;" onclick="completeSale()">✅ Generate GST Invoice</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-inventory" class="view">
-      <div class="card">
-        <div class="card-header">
-          <input type="text" id="invSearch" placeholder="🔍 Search inventory..." style="max-width:250px;" oninput="renderInventory()" />
-          <button class="btn btn-primary btn-sm" onclick="openProductModal()">+ Add Product</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Item / HSN</th><th>GST%</th><th>Price</th><th>Stock</th><th>Expiry</th><th>Actions</th></tr></thead>
-            <tbody id="inventoryTable"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-khata" class="view">
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📒 Customer Credit Book (Khata)</span>
-          <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Customer</th><th>Phone</th><th>Due Balance</th><th>WhatsApp & Actions</th></tr></thead>
-            <tbody id="khataTable"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-sales" class="view">
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">💰 GST Sales History</span>
-          <input type="text" id="salesSearch" placeholder="🔍 Search invoice #..." style="max-width:220px;" oninput="renderSales()" />
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Invoice</th><th>Date</th><th>Payment</th><th>Taxable</th><th>GST</th><th>Total</th><th>Profit</th><th>Bill</th></tr></thead>
-            <tbody id="salesTable"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section id="view-settings" class="view">
-      <div class="card" style="max-width:600px;">
-        <div class="card-header"><span class="card-title">⚙️ Shop, GST & Backend Server Settings</span></div>
-        <form onsubmit="saveSettings(event)">
-          <div class="form-grid">
-            <div class="form-group full">
-              <label>Backend Server URL (For APK, enter Mac IP e.g. http://192.168.1.5:3000)</label>
-              <input type="text" id="setApiUrl" placeholder="Leave blank if running directly on server" />
-            </div>
-            <div class="form-group full"><label>Shop Name</label><input type="text" id="setShopName" required /></div>
-            <div class="form-group"><label>Shop GSTIN</label><input type="text" id="setGstin" placeholder="27ABCDE1234F1Z5" /></div>
-            <div class="form-group"><label>Shop Phone</label><input type="text" id="setPhone" /></div>
-            <div class="form-group full"><label>Shop Address</label><input type="text" id="setAddress" /></div>
-            <div class="form-group"><label>UPI ID (for WhatsApp reminders)</label><input type="text" id="setUpi" placeholder="shopname@upi" /></div>
-            <div class="form-group">
-              <label>GST Pricing Mode</label>
-              <select id="setTaxMode">
-                <option value="1">Tax-Inclusive (MRP includes GST)</option>
-                <option value="0">Tax-Exclusive (Add GST on top)</option>
-              </select>
-            </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Customer</th><th>Phone</th><th>Due Balance</th><th>WhatsApp & Actions</th></tr></thead>
+              <tbody id="khataTable"></tbody>
+            </table>
           </div>
-          <button type="submit" class="btn btn-primary">💾 Save Settings</button>
-        </form>
-      </div>
-    </section>
-  </main>
+        </div>
+      </section>
 
+      <section id="view-sales" class="view">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">💰 GST Sales History</span>
+            <input type="text" id="salesSearch" placeholder="🔍 Search invoice #..." style="max-width:220px;" oninput="renderSales()" />
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Invoice</th><th>Date</th><th>Payment</th><th>Taxable</th><th>GST</th><th>Total</th><th>Profit</th><th>Bill</th></tr></thead>
+              <tbody id="salesTable"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view">
+        <div class="card" style="max-width:600px;">
+          <div class="card-header">
+            <span class="card-title">⚙️ Store & GST Settings</span>
+            <button class="btn btn-danger btn-sm" onclick="logoutStore()">🚪 Switch / Logout Store</button>
+          </div>
+          <form onsubmit="saveSettings(event)">
+            <div class="form-grid">
+              <div class="form-group full"><label>Shop Name</label><input type="text" id="setShopName" required /></div>
+              <div class="form-group"><label>Shop GSTIN</label><input type="text" id="setGstin" /></div>
+              <div class="form-group"><label>Shop Phone</label><input type="text" id="setPhone" /></div>
+              <div class="form-group full"><label>Shop Address</label><input type="text" id="setAddress" /></div>
+              <div class="form-group"><label>UPI ID (for WhatsApp reminders)</label><input type="text" id="setUpi" /></div>
+              <div class="form-group">
+                <label>GST Pricing Mode</label>
+                <select id="setTaxMode">
+                  <option value="1">Tax-Inclusive (MRP includes GST)</option>
+                  <option value="0">Tax-Exclusive (Add GST on top)</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">💾 Save Settings</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODALS -->
   <div class="modal-backdrop" id="productModal">
     <div class="modal">
       <div class="card-header"><span class="card-title" id="prodModalTitle">Add Product</span><button class="btn btn-outline btn-sm" onclick="closeModal('productModal')">✕</button></div>
@@ -305,22 +375,9 @@
         <div class="form-grid">
           <div class="form-group full"><label>Product Name *</label><input type="text" id="prodName" required /></div>
           <div class="form-group"><label>SKU / Barcode</label><input type="text" id="prodSku" /></div>
-          <div class="form-group"><label>HSN Code</label><input type="text" id="prodHsn" placeholder="e.g. 1006" /></div>
-          <div class="form-group">
-            <label>Category</label>
-            <select id="prodCat">
-              <option>Grains & Pulses</option><option>Dairy & Bakery</option>
-              <option>Fruits & Veggies</option><option>Snacks & Drinks</option>
-              <option>Spices & Oil</option><option>Household</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>GST Rate (%)</label>
-            <select id="prodGst">
-              <option value="0">0% (Exempt)</option><option value="5">5%</option>
-              <option value="12">12%</option><option value="18">18%</option><option value="28">28%</option>
-            </select>
-          </div>
+          <div class="form-group"><label>HSN Code</label><input type="text" id="prodHsn" /></div>
+          <div class="form-group"><label>Category</label><select id="prodCat"><option>Grains & Pulses</option><option>Dairy & Bakery</option><option>Fruits & Veggies</option><option>Snacks & Drinks</option><option>Spices & Oil</option><option>Household</option></select></div>
+          <div class="form-group"><label>GST Rate (%)</label><select id="prodGst"><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select></div>
           <div class="form-group"><label>Cost Price *</label><input type="number" step="0.01" id="prodCost" required /></div>
           <div class="form-group"><label>Selling Price *</label><input type="number" step="0.01" id="prodPrice" required /></div>
           <div class="form-group"><label>Stock *</label><input type="number" step="0.01" id="prodStock" required /></div>
@@ -339,8 +396,8 @@
       <form onsubmit="saveCustomer(event)">
         <div class="form-grid">
           <div class="form-group full"><label>Name *</label><input type="text" id="custName" required /></div>
-          <div class="form-group"><label>WhatsApp Phone *</label><input type="text" id="custPhone" required placeholder="10-digit mobile" /></div>
-          <div class="form-group"><label>Customer GSTIN (Opt)</label><input type="text" id="custGstin" /></div>
+          <div class="form-group"><label>WhatsApp Phone *</label><input type="text" id="custPhone" required /></div>
+          <div class="form-group"><label>Customer GSTIN</label><input type="text" id="custGstin" /></div>
           <div class="form-group full"><label>Opening Balance</label><input type="number" step="0.01" id="custBalance" value="0" /></div>
         </div>
         <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">Save Customer</button>
@@ -359,20 +416,104 @@
   </div>
 
   <script>
-    const isSameOrigin = location.protocol.startsWith('http') && (location.port === '3000' || location.hostname !== 'localhost');
-    const savedApi = localStorage.getItem('freshmart_api_url');
-    let API_BASE = savedApi !== null ? savedApi : (isSameOrigin ? '' : 'http://192.168.1.5:3000');
+    const isSameOrigin = location.protocol.startsWith('http') && location.hostname !== 'localhost';
+    const isLocalBrowser = location.protocol.startsWith('http') && location.hostname === 'localhost' && location.port === '3000';
+    let API_BASE = localStorage.getItem('freshmart_api_url') || (isSameOrigin || isLocalBrowser ? '' : '');
+    let AUTH_TOKEN = localStorage.getItem('freshmart_token') || '';
     let state = { settings: { shop_name: 'FreshMart', currency: '₹', tax_inclusive: 1 }, products: [], customers: [], sales: [], cart: [], activeCat: 'All' };
 
     const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
     const fmt = (n) => `${state.settings.currency || '₹'}${round2(n).toFixed(2)}`;
     const esc = (s) => String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 
+    document.getElementById('authApiUrl').value = API_BASE;
+
+    function toggleAuthMode(mode) {
+      document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+      document.getElementById('tabRegister').classList.toggle('active', mode === 'register');
+      document.getElementById('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+      document.getElementById('registerForm').style.display = mode === 'register' ? 'block' : 'none';
+      document.getElementById('authErr').textContent = '';
+    }
+
+    function saveApiFromAuth() {
+      const url = document.getElementById('authApiUrl').value.trim().replace(/\/$/, '');
+      API_BASE = url;
+      if (url) localStorage.setItem('freshmart_api_url', url);
+      else localStorage.removeItem('freshmart_api_url');
+    }
+
     async function api(path, options = {}) {
-      const res = await fetch(`${API_BASE}${path}`, { headers: { 'Content-Type': 'application/json' }, ...options });
+      const headers = { 'Content-Type': 'application/json' };
+      if (AUTH_TOKEN) headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+      const res = await fetch(`${API_BASE}${path}`, { ...options, headers: { ...headers, ...(options.headers || {}) } });
       const data = await res.json();
+      if (res.status === 401 && AUTH_TOKEN) {
+        logoutStore();
+        throw new Error(data.error || 'Session expired');
+      }
       if (!res.ok) throw new Error(data.error || 'Server error');
       return data;
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      saveApiFromAuth();
+      document.getElementById('authErr').textContent = '';
+      try {
+        const res = await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: document.getElementById('loginEmail').value.trim(),
+            password: document.getElementById('loginPass').value
+          })
+        });
+        AUTH_TOKEN = res.token;
+        localStorage.setItem('freshmart_token', AUTH_TOKEN);
+        enterApp();
+      } catch (err) {
+        document.getElementById('authErr').textContent = err.message;
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      saveApiFromAuth();
+      document.getElementById('authErr').textContent = '';
+      try {
+        const res = await api('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            shop_name: document.getElementById('regShop').value.trim(),
+            owner_name: document.getElementById('regOwner').value.trim(),
+            phone: document.getElementById('regPhone').value.trim(),
+            email: document.getElementById('regEmail').value.trim(),
+            password: document.getElementById('regPass').value,
+            upi_id: document.getElementById('regUpi').value.trim(),
+            gstin: document.getElementById('regGstin').value.trim(),
+            seed_demo: document.getElementById('regDemo').checked
+          })
+        });
+        AUTH_TOKEN = res.token;
+        localStorage.setItem('freshmart_token', AUTH_TOKEN);
+        enterApp();
+      } catch (err) {
+        document.getElementById('authErr').textContent = err.message;
+      }
+    }
+
+    function logoutStore() {
+      AUTH_TOKEN = '';
+      localStorage.removeItem('freshmart_token');
+      state.cart = [];
+      document.getElementById('appShell').classList.remove('active');
+      document.getElementById('authView').style.display = 'grid';
+    }
+
+    function enterApp() {
+      document.getElementById('authView').style.display = 'none';
+      document.getElementById('appShell').classList.add('active');
+      loadAllData();
     }
 
     async function loadAllData() {
@@ -384,11 +525,11 @@
         state.customers = data.customers;
         state.sales = data.sales;
         pill.className = 'status-pill status-ok';
-        pill.textContent = '● Synced with SQLite';
+        pill.textContent = '● Live Synced';
         renderAll();
       } catch (err) {
         pill.className = 'status-pill status-err';
-        pill.textContent = '● Offline / Check Server URL in Setup';
+        pill.textContent = '● Connection Error';
       }
     }
 
@@ -744,7 +885,7 @@
     function renderSettings() {
       const s = state.settings;
       document.getElementById('sideShopName').textContent = s.shop_name || 'FreshMart';
-      document.getElementById('setApiUrl').value = API_BASE;
+      document.getElementById('sideStoreId').textContent = `Store #${s.id || 1}`;
       document.getElementById('setShopName').value = s.shop_name || '';
       document.getElementById('setGstin').value = s.gstin || '';
       document.getElementById('setPhone').value = s.phone || '';
@@ -755,9 +896,6 @@
 
     async function saveSettings(e) {
       e.preventDefault();
-      const newUrl = document.getElementById('setApiUrl').value.trim().replace(/\/$/, '');
-      API_BASE = newUrl;
-      localStorage.setItem('freshmart_api_url', newUrl);
       await api('/api/settings', {
         method: 'PUT',
         body: JSON.stringify({
@@ -776,7 +914,8 @@
 
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
     function renderAll() { renderDashboard(); renderPOS(); renderCart(); renderInventory(); renderKhata(); renderSales(); renderSettings(); }
-    loadAllData();
+
+    if (AUTH_TOKEN) enterApp();
   </script>
 </body>
 </html>

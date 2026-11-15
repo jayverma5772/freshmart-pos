@@ -1,52 +1,148 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'freshmart-dev-secret-change-in-prod';
+const isPg = Boolean(process.env.DATABASE_URL);
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(__dirname, '../app/www')));
 
-const db = new sqlite3.Database(path.join(__dirname, 'freshmart.db'));
+// ---------- DUAL DB ADAPTER (PostgreSQL for Cloud / SQLite for Local) ----------
+let pgPool = null;
+let sqliteDb = null;
 
-const dbRun = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
+if (isPg) {
+  const { Pool } = require('pg');
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+} else {
+  const sqlite3 = require('sqlite3').verbose();
+  sqliteDb = new sqlite3.Database(path.join(__dirname, 'freshmart.db'));
+}
+
+function toPgSql(sql) {
+  let idx = 0;
+  return sql.replace(/\?/g, () => `$${++idx}`);
+}
+
+async function dbAll(sql, params = []) {
+  if (isPg) {
+    const res = await pgPool.query(toPgSql(sql), params);
+    return res.rows;
+  }
+  return new Promise((resolve, reject) => {
+    sqliteDb.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
+  });
+}
+
+async function dbGet(sql, params = []) {
+  const rows = await dbAll(sql, params);
+  return rows[0] || null;
+}
+
+async function dbRun(sql, params = []) {
+  if (isPg) {
+    await pgPool.query(toPgSql(sql), params);
+    return { ok: true };
+  }
+  return new Promise((resolve, reject) => {
+    sqliteDb.run(sql, params, function (err) {
       if (err) reject(err);
       else resolve({ id: this.lastID, changes: this.changes });
     });
   });
+}
 
-const dbGet = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)));
+async function dbInsert(sql, params = []) {
+  if (isPg) {
+    const res = await pgPool.query(`${toPgSql(sql)} RETURNING id`, params);
+    return res.rows[0].id;
+  }
+  return new Promise((resolve, reject) => {
+    sqliteDb.run(sql, params, function (err) {
+      if (err) reject(err);
+      else resolve(this.lastID);
+    });
   });
+}
 
-const dbAll = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)));
-  });
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+// ---------- AUTH HELPERS (No extra npm packages needed) ----------
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, key] = String(stored || '').split(':');
+  if (!salt || !key) return false;
+  const derived = crypto.scryptSync(password, salt, 64);
+  const keyBuf = Buffer.from(key, 'hex');
+  return crypto.timingSafeEqual(derived, keyBuf);
+}
+
+function signToken(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
+function verifyToken(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  const expected = crypto.createHmac('sha256', JWT_SECRET).update(data).digest('base64url');
+  if (sig !== expected) return null;
+  try {
+    return JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const payload = verifyToken(token);
+  if (!payload || !payload.storeId) return res.status(401).json({ error: 'Session expired. Please login again.' });
+  req.storeId = payload.storeId;
+  next();
+}
+
+// ---------- INIT DATABASE ----------
 async function initDB() {
+  const pk = isPg ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+
   await dbRun(`
-    CREATE TABLE IF NOT EXISTS settings (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      shop_name TEXT,
-      gstin TEXT,
-      address TEXT,
-      phone TEXT,
-      upi_id TEXT,
-      currency TEXT,
-      tax_inclusive INTEGER DEFAULT 1
+    CREATE TABLE IF NOT EXISTS stores (
+      id ${pk},
+      shop_name TEXT NOT NULL,
+      owner_name TEXT,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      gstin TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      phone TEXT DEFAULT '',
+      upi_id TEXT DEFAULT '',
+      currency TEXT DEFAULT '₹',
+      tax_inclusive INTEGER DEFAULT 1,
+      created_at TEXT
     )
   `);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id ${pk},
+      store_id INTEGER NOT NULL,
       sku TEXT,
       name TEXT NOT NULL,
       category TEXT,
@@ -63,7 +159,8 @@ async function initDB() {
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS customers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id ${pk},
+      store_id INTEGER NOT NULL,
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
       gstin TEXT,
@@ -74,8 +171,9 @@ async function initDB() {
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS sales (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      invoice_no TEXT UNIQUE,
+      id ${pk},
+      store_id INTEGER NOT NULL,
+      invoice_no TEXT NOT NULL,
       date TEXT,
       customer_id INTEGER,
       customer_name TEXT,
@@ -87,68 +185,92 @@ async function initDB() {
       discount REAL,
       total REAL,
       profit REAL,
-      items_json TEXT
+      items_json TEXT,
+      UNIQUE(store_id, invoice_no)
     )
   `);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS khata_payments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id ${pk},
+      store_id INTEGER NOT NULL,
       customer_id INTEGER,
       amount REAL,
       date TEXT
     )
   `);
-
-  const existingSettings = await dbGet('SELECT * FROM settings WHERE id = 1');
-  if (!existingSettings) {
-    await dbRun(
-      `INSERT INTO settings (id, shop_name, gstin, address, phone, upi_id, currency, tax_inclusive)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?)`,
-      ['FreshMart Superstore', '27ABCDE1234F1Z5', 'Main Market Road, Near Bus Stand', '9876543210', 'freshmart@upi', '₹', 1]
-    );
-  }
-
-  const prodCount = await dbGet('SELECT COUNT(*) as c FROM products');
-  if (prodCount.c === 0) {
-    const future = (d) => new Date(Date.now() + d * 86400000).toISOString().split('T')[0];
-    const seedProducts = [
-      ['1001', 'Basmati Rice', 'Grains & Pulses', '1006', 5, 85, 110, 45, 'kg', 10, ''],
-      ['1002', 'Toor Dal', 'Grains & Pulses', '0713', 0, 120, 150, 8, 'kg', 10, ''],
-      ['1003', 'Full Cream Milk (1L)', 'Dairy & Bakery', '0401', 0, 58, 66, 24, 'pack', 10, future(2)],
-      ['1004', 'Amul Butter (100g)', 'Dairy & Bakery', '0405', 12, 48, 56, 15, 'pcs', 5, future(25)],
-      ['1005', 'Sunflower Oil (1L)', 'Spices & Oil', '1512', 5, 118, 145, 30, 'L', 8, future(180)],
-      ['1006', 'Masala Chips', 'Snacks & Drinks', '2106', 12, 15, 20, 50, 'pcs', 12, future(90)],
-      ['1007', 'Dishwash Gel (500ml)', 'Household', '3402', 18, 80, 105, 14, 'pcs', 5, future(365)]
-    ];
-    for (const p of seedProducts) {
-      await dbRun(
-        `INSERT INTO products (sku, name, category, hsn, gst_rate, cost, price, stock, unit, min_stock, expiry)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        p
-      );
-    }
-  }
-
-  const custCount = await dbGet('SELECT COUNT(*) as c FROM customers');
-  if (custCount.c === 0) {
-    await dbRun(
-      `INSERT INTO customers (name, phone, gstin, balance, last_updated) VALUES (?, ?, ?, ?, ?)`,
-      ['Ramesh Verma', '9876501234', '', 450, new Date().toISOString()]
-    );
-    await dbRun(
-      `INSERT INTO customers (name, phone, gstin, balance, last_updated) VALUES (?, ?, ?, ?, ?)`,
-      ['Sunita Kirana Traders', '9811223344', '27XYZAB5678G1Z2', 0, new Date().toISOString()]
-    );
-  }
 }
 
-app.get('/api/bootstrap', async (req, res) => {
+// ---------- AUTH ROUTES ----------
+app.get('/api/health', (req, res) => res.json({ ok: true, db: isPg ? 'PostgreSQL' : 'SQLite' }));
+
+app.post('/api/auth/register', async (req, res) => {
   try {
-    const settings = await dbGet('SELECT * FROM settings WHERE id = 1');
-    const products = await dbAll('SELECT * FROM products ORDER BY id DESC');
-    const customers = await dbAll('SELECT * FROM customers ORDER BY id DESC');
-    const salesRows = await dbAll('SELECT * FROM sales ORDER BY id DESC LIMIT 200');
+    const { shop_name, owner_name, email, password, phone, gstin, address, upi_id, seed_demo } = req.body;
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!shop_name || !cleanEmail || !password || password.length < 4) {
+      return res.status(400).json({ error: 'Shop name, valid email, and password (min 4 chars) are required.' });
+    }
+
+    const existing = await dbGet('SELECT id FROM stores WHERE email = ?', [cleanEmail]);
+    if (existing) return res.status(400).json({ error: 'A store is already registered with this email.' });
+
+    const storeId = await dbInsert(
+      `INSERT INTO stores (shop_name, owner_name, email, password_hash, gstin, address, phone, upi_id, currency, tax_inclusive, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, '₹', 1, ?)`,
+      [shop_name.trim(), owner_name || '', cleanEmail, hashPassword(password), gstin || '', address || '', phone || '', upi_id || '', new Date().toISOString()]
+    );
+
+    if (seed_demo) {
+      const future = (d) => new Date(Date.now() + d * 86400000).toISOString().split('T')[0];
+      const samples = [
+        [storeId, '1001', 'Basmati Rice', 'Grains & Pulses', '1006', 5, 85, 110, 40, 'kg', 10, ''],
+        [storeId, '1002', 'Toor Dal', 'Grains & Pulses', '0713', 0, 120, 150, 15, 'kg', 5, ''],
+        [storeId, '1003', 'Full Cream Milk (1L)', 'Dairy & Bakery', '0401', 0, 58, 66, 20, 'pack', 8, future(2)],
+        [storeId, '1004', 'Sunflower Oil (1L)', 'Spices & Oil', '1512', 5, 118, 145, 25, 'L', 5, future(180)],
+        [storeId, '1005', 'Dishwash Gel', 'Household', '3402', 18, 80, 105, 12, 'pcs', 4, future(365)]
+      ];
+      for (const p of samples) {
+        await dbRun(
+          `INSERT INTO products (store_id, sku, name, category, hsn, gst_rate, cost, price, stock, unit, min_stock, expiry)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          p
+        );
+      }
+    }
+
+    const token = signToken({ storeId, email: cleanEmail });
+    res.json({ token, store: { id: storeId, shop_name: shop_name.trim(), email: cleanEmail } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const cleanEmail = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const store = await dbGet('SELECT * FROM stores WHERE email = ?', [cleanEmail]);
+    if (!store || !verifyPassword(password, store.password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    const token = signToken({ storeId: store.id, email: store.email });
+    res.json({ token, store: { id: store.id, shop_name: store.shop_name, email: store.email } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- PROTECTED STORE ROUTES (Strictly isolated by req.storeId) ----------
+app.get('/api/bootstrap', requireAuth, async (req, res) => {
+  try {
+    const settings = await dbGet(
+      'SELECT id, shop_name, owner_name, email, gstin, address, phone, upi_id, currency, tax_inclusive FROM stores WHERE id = ?',
+      [req.storeId]
+    );
+    const products = await dbAll('SELECT * FROM products WHERE store_id = ? ORDER BY id DESC', [req.storeId]);
+    const customers = await dbAll('SELECT * FROM customers WHERE store_id = ? ORDER BY id DESC', [req.storeId]);
+    const salesRows = await dbAll('SELECT * FROM sales WHERE store_id = ? ORDER BY id DESC LIMIT 200', [req.storeId]);
     const sales = salesRows.map((s) => ({ ...s, items: JSON.parse(s.items_json || '[]') }));
     res.json({ settings, products, customers, sales });
   } catch (err) {
@@ -156,12 +278,12 @@ app.get('/api/bootstrap', async (req, res) => {
   }
 });
 
-app.put('/api/settings', async (req, res) => {
+app.put('/api/settings', requireAuth, async (req, res) => {
   try {
     const { shop_name, gstin, address, phone, upi_id, currency, tax_inclusive } = req.body;
     await dbRun(
-      `UPDATE settings SET shop_name=?, gstin=?, address=?, phone=?, upi_id=?, currency=?, tax_inclusive=? WHERE id=1`,
-      [shop_name, gstin, address, phone, upi_id, currency, tax_inclusive ? 1 : 0]
+      `UPDATE stores SET shop_name=?, gstin=?, address=?, phone=?, upi_id=?, currency=?, tax_inclusive=? WHERE id=?`,
+      [shop_name, gstin, address, phone, upi_id, currency || '₹', tax_inclusive ? 1 : 0, req.storeId]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -169,26 +291,26 @@ app.put('/api/settings', async (req, res) => {
   }
 });
 
-app.post('/api/products', async (req, res) => {
+app.post('/api/products', requireAuth, async (req, res) => {
   try {
     const p = req.body;
-    const r = await dbRun(
-      `INSERT INTO products (sku, name, category, hsn, gst_rate, cost, price, stock, unit, min_stock, expiry)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [p.sku, p.name, p.category, p.hsn || '', p.gst_rate || 0, p.cost, p.price, p.stock, p.unit, p.min_stock || 5, p.expiry || '']
+    const id = await dbInsert(
+      `INSERT INTO products (store_id, sku, name, category, hsn, gst_rate, cost, price, stock, unit, min_stock, expiry)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.storeId, p.sku || '', p.name, p.category, p.hsn || '', p.gst_rate || 0, p.cost, p.price, p.stock, p.unit, p.min_stock || 5, p.expiry || '']
     );
-    res.json({ id: r.id });
+    res.json({ id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', requireAuth, async (req, res) => {
   try {
     const p = req.body;
     await dbRun(
-      `UPDATE products SET sku=?, name=?, category=?, hsn=?, gst_rate=?, cost=?, price=?, stock=?, unit=?, min_stock=?, expiry=? WHERE id=?`,
-      [p.sku, p.name, p.category, p.hsn || '', p.gst_rate || 0, p.cost, p.price, p.stock, p.unit, p.min_stock || 5, p.expiry || '', req.params.id]
+      `UPDATE products SET sku=?, name=?, category=?, hsn=?, gst_rate=?, cost=?, price=?, stock=?, unit=?, min_stock=?, expiry=? WHERE id=? AND store_id=?`,
+      [p.sku || '', p.name, p.category, p.hsn || '', p.gst_rate || 0, p.cost, p.price, p.stock, p.unit, p.min_stock || 5, p.expiry || '', req.params.id, req.storeId]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -196,73 +318,76 @@ app.put('/api/products/:id', async (req, res) => {
   }
 });
 
-app.post('/api/products/:id/restock', async (req, res) => {
+app.post('/api/products/:id/restock', requireAuth, async (req, res) => {
   try {
     const qty = Number(req.body.qty);
     if (!qty || qty <= 0) return res.status(400).json({ error: 'Invalid quantity' });
-    await dbRun('UPDATE products SET stock = ROUND(stock + ?, 2) WHERE id = ?', [qty, req.params.id]);
+    const prod = await dbGet('SELECT stock FROM products WHERE id = ? AND store_id = ?', [req.params.id, req.storeId]);
+    if (!prod) return res.status(404).json({ error: 'Product not found' });
+    await dbRun('UPDATE products SET stock = ? WHERE id = ? AND store_id = ?', [round2(Number(prod.stock) + qty), req.params.id, req.storeId]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', requireAuth, async (req, res) => {
   try {
-    await dbRun('DELETE FROM products WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM products WHERE id = ? AND store_id = ?', [req.params.id, req.storeId]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/customers', async (req, res) => {
+app.post('/api/customers', requireAuth, async (req, res) => {
   try {
     const { name, phone, gstin, balance } = req.body;
-    const r = await dbRun(
-      `INSERT INTO customers (name, phone, gstin, balance, last_updated) VALUES (?, ?, ?, ?, ?)`,
-      [name, phone, gstin || '', Number(balance) || 0, new Date().toISOString()]
+    const id = await dbInsert(
+      `INSERT INTO customers (store_id, name, phone, gstin, balance, last_updated) VALUES (?, ?, ?, ?, ?, ?)`,
+      [req.storeId, name, phone, gstin || '', Number(balance) || 0, new Date().toISOString()]
     );
-    res.json({ id: r.id });
+    res.json({ id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/customers/:id/pay', async (req, res) => {
+app.post('/api/customers/:id/pay', requireAuth, async (req, res) => {
   try {
     const amount = Number(req.body.amount);
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Invalid payment amount' });
+    const cust = await dbGet('SELECT balance FROM customers WHERE id = ? AND store_id = ?', [req.params.id, req.storeId]);
+    if (!cust) return res.status(404).json({ error: 'Customer not found' });
+
+    const newBal = Math.max(0, round2(Number(cust.balance) - amount));
     const now = new Date().toISOString();
-    await dbRun(
-      `UPDATE customers SET balance = MAX(0, ROUND(balance - ?, 2)), last_updated = ? WHERE id = ?`,
-      [amount, now, req.params.id]
-    );
-    await dbRun(`INSERT INTO khata_payments (customer_id, amount, date) VALUES (?, ?, ?)`, [req.params.id, amount, now]);
+    await dbRun('UPDATE customers SET balance = ?, last_updated = ? WHERE id = ? AND store_id = ?', [newBal, now, req.params.id, req.storeId]);
+    await dbRun('INSERT INTO khata_payments (store_id, customer_id, amount, date) VALUES (?, ?, ?, ?)', [req.storeId, req.params.id, amount, now]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/sales', async (req, res) => {
+app.post('/api/sales', requireAuth, async (req, res) => {
   try {
     const { items, discount, pay_mode, customer_id, customer_name, customer_gstin } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'Cart is empty' });
 
-    const settings = await dbGet('SELECT * FROM settings WHERE id = 1');
+    const settings = await dbGet('SELECT tax_inclusive FROM stores WHERE id = ?', [req.storeId]);
     const taxInclusive = Boolean(settings.tax_inclusive);
 
     let taxableTotal = 0, cgstTotal = 0, sgstTotal = 0, grossTotal = 0, costTotal = 0;
     const enrichedItems = [];
 
     for (const item of items) {
-      const prod = await dbGet('SELECT * FROM products WHERE id = ?', [item.id]);
+      const prod = await dbGet('SELECT * FROM products WHERE id = ? AND store_id = ?', [item.id, req.storeId]);
       if (!prod) return res.status(400).json({ error: `Product ID ${item.id} not found` });
-      if (prod.stock < item.qty) return res.status(400).json({ error: `Insufficient stock for ${prod.name}` });
+      if (Number(prod.stock) < item.qty) return res.status(400).json({ error: `Insufficient stock for ${prod.name}` });
 
       const rate = Number(prod.gst_rate || 0);
-      const lineBase = prod.price * item.qty;
+      const lineBase = Number(prod.price) * item.qty;
       let lineTaxable, lineTax, lineTotal;
 
       if (taxInclusive) {
@@ -277,54 +402,55 @@ app.post('/api/sales', async (req, res) => {
 
       const cgst = lineTax / 2;
       const sgst = lineTax / 2;
-
       taxableTotal += lineTaxable;
       cgstTotal += cgst;
       sgstTotal += sgst;
       grossTotal += lineTotal;
-      costTotal += prod.cost * item.qty;
+      costTotal += Number(prod.cost) * item.qty;
 
       enrichedItems.push({
         id: prod.id, name: prod.name, hsn: prod.hsn || '', unit: prod.unit,
-        qty: item.qty, price: prod.price, gst_rate: rate,
-        taxable: Math.round(lineTaxable * 100) / 100,
-        cgst: Math.round(cgst * 100) / 100,
-        sgst: Math.round(sgst * 100) / 100,
-        total: Math.round(lineTotal * 100) / 100
+        qty: item.qty, price: Number(prod.price), gst_rate: rate,
+        oldStock: Number(prod.stock),
+        taxable: round2(lineTaxable), cgst: round2(cgst), sgst: round2(sgst), total: round2(lineTotal)
       });
     }
 
     const disc = Math.max(0, Number(discount) || 0);
-    const finalTotal = Math.max(0, Math.round((grossTotal - disc) * 100) / 100);
-    const profit = Math.round((taxableTotal - costTotal - disc) * 100) / 100;
+    const finalTotal = Math.max(0, round2(grossTotal - disc));
+    const profit = round2(taxableTotal - costTotal - disc);
 
     for (const it of enrichedItems) {
-      await dbRun('UPDATE products SET stock = MAX(0, ROUND(stock - ?, 2)) WHERE id = ?', [it.qty, it.id]);
+      const newStock = Math.max(0, round2(it.oldStock - it.qty));
+      delete it.oldStock;
+      await dbRun('UPDATE products SET stock = ? WHERE id = ? AND store_id = ?', [newStock, it.id, req.storeId]);
     }
 
     const now = new Date().toISOString();
     if (pay_mode === 'Credit' && customer_id) {
-      await dbRun('UPDATE customers SET balance = ROUND(balance + ?, 2), last_updated = ? WHERE id = ?', [
-        finalTotal, now, customer_id
-      ]);
+      const cust = await dbGet('SELECT balance FROM customers WHERE id = ? AND store_id = ?', [customer_id, req.storeId]);
+      if (cust) {
+        await dbRun('UPDATE customers SET balance = ?, last_updated = ? WHERE id = ? AND store_id = ?', [
+          round2(Number(cust.balance) + finalTotal), now, customer_id, req.storeId
+        ]);
+      }
     }
 
-    const countRow = await dbGet('SELECT COUNT(*) as c FROM sales');
-    const invoiceNo = `INV-${1001 + countRow.c}`;
+    const countRow = await dbGet('SELECT COUNT(*) as c FROM sales WHERE store_id = ?', [req.storeId]);
+    const invoiceNo = `INV-${1001 + Number(countRow.c)}`;
 
     const saleObj = {
       invoice_no: invoiceNo, date: now, customer_id: customer_id || null,
       customer_name: customer_name || 'Walk-in Customer', customer_gstin: customer_gstin || '',
-      pay_mode, taxable_total: Math.round(taxableTotal * 100) / 100,
-      cgst_total: Math.round(cgstTotal * 100) / 100, sgst_total: Math.round(sgstTotal * 100) / 100,
-      discount: disc, total: finalTotal, profit, items: enrichedItems
+      pay_mode, taxable_total: round2(taxableTotal), cgst_total: round2(cgstTotal),
+      sgst_total: round2(sgstTotal), discount: disc, total: finalTotal, profit, items: enrichedItems
     };
 
     await dbRun(
-      `INSERT INTO sales (invoice_no, date, customer_id, customer_name, customer_gstin, pay_mode, taxable_total, cgst_total, sgst_total, discount, total, profit, items_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO sales (store_id, invoice_no, date, customer_id, customer_name, customer_gstin, pay_mode, taxable_total, cgst_total, sgst_total, discount, total, profit, items_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        saleObj.invoice_no, saleObj.date, saleObj.customer_id, saleObj.customer_name,
+        req.storeId, saleObj.invoice_no, saleObj.date, saleObj.customer_id, saleObj.customer_name,
         saleObj.customer_gstin, saleObj.pay_mode, saleObj.taxable_total, saleObj.cgst_total,
         saleObj.sgst_total, saleObj.discount, saleObj.total, saleObj.profit, JSON.stringify(enrichedItems)
       ]
@@ -338,6 +464,6 @@ app.post('/api/sales', async (req, res) => {
 
 initDB().then(() => {
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`FreshMart Backend running on http://0.0.0.0:${PORT}`);
+    console.log(`FreshMart Multi-Store Server (${isPg ? 'PostgreSQL' : 'SQLite'}) running on port ${PORT}`);
   });
 });
