@@ -1,0 +1,6 @@
+node_modules/
+backend/freshmart.db
+*.log
+.DS_Store
+app/android/
+app/node_modules/

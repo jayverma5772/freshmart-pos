@@ -1,0 +1,9 @@
+{
+  "appId": "com.freshmart.pos",
+  "appName": "FreshMart POS",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

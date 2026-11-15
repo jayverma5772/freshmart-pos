@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>FreshMart POS</title>
+  <style>
+    :root {
+      --primary: #059669; --primary-dark: #047857; --primary-light: #d1fae5;
+      --bg: #f3f4f6; --surface: #ffffff; --text: #111827; --muted: #6b7280;
+      --border: #e5e7eb; --danger: #dc2626; --danger-bg: #fee2e2;
+      --warning: #d97706; --warning-bg: #fef3c7; --info: #2563eb; --info-bg: #dbeafe;
+      --whatsapp: #16a34a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+
+    .sidebar {
+      width: 235px; background: #064e3b; color: #fff;
+      display: flex; flex-direction: column; padding: 18px 12px; flex-shrink: 0;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.14); margin-bottom: 14px; }
+    .brand-icon { width: 38px; height: 38px; border-radius: 10px; background: #10b981; display: grid; place-items: center; font-size: 20px; }
+    .brand h1 { font-size: 16px; font-weight: 700; }
+    .brand span { font-size: 11px; color: #a7f3d0; }
+
+    .nav-btn {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 11px 12px; margin-bottom: 5px; border: none; border-radius: 8px;
+      background: transparent; color: #d1fae5; font-size: 14px; font-weight: 500;
+      cursor: pointer; text-align: left;
+    }
+    .nav-btn.active { background: #10b981; color: #064e3b; font-weight: 700; }
+    .nav-badge { margin-left: auto; background: #ef4444; color: #fff; font-size: 11px; padding: 2px 7px; border-radius: 99px; font-weight: 700; }
+
+    .main { flex: 1; padding: 20px 24px 80px; overflow-y: auto; max-height: 100vh; width: 100%; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+    .topbar h2 { font-size: 20px; font-weight: 800; }
+    .status-pill { font-size: 11px; padding: 4px 10px; border-radius: 99px; font-weight: 700; }
+    .status-ok { background: var(--primary-light); color: var(--primary-dark); }
+    .status-err { background: var(--danger-bg); color: var(--danger); }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .stat-card { background: var(--surface); padding: 15px; border-radius: 10px; border: 1px solid var(--border); }
+    .stat-label { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+    .stat-val { font-size: 22px; font-weight: 800; margin: 5px 0 2px; }
+    .stat-note { font-size: 11px; color: var(--muted); }
+
+    .card { background: var(--surface); border-radius: 10px; border: 1px solid var(--border); padding: 16px; margin-bottom: 14px; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
+    .card-title { font-size: 15px; font-weight: 700; }
+
+    .btn { padding: 9px 13px; border-radius: 8px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-wa { background: var(--whatsapp); color: #fff; }
+    .btn-outline { background: #fff; color: var(--text); border: 1px solid var(--border); }
+    .btn-sm { padding: 5px 9px; font-size: 12px; }
+
+    input, select { padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--text); width: 100%; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+    .badge-ok { background: var(--primary-light); color: var(--primary-dark); }
+    .badge-warn { background: var(--warning-bg); color: var(--warning); }
+    .badge-danger { background: var(--danger-bg); color: var(--danger); }
+    .badge-info { background: var(--info-bg); color: var(--info); }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { font-size: 11px; text-transform: uppercase; color: var(--muted); background: #f9fafb; }
+
+    .pos-layout { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; align-items: start; }
+    .cat-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin: 10px 0; }
+    .pill { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--border); background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .pill.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 10px; max-height: 55vh; overflow-y: auto; }
+    .prod-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: #fff; cursor: pointer; }
+    .prod-card.out { opacity: 0.45; }
+    .prod-name { font-size: 13px; font-weight: 700; margin: 3px 0; }
+    .prod-price { font-size: 14px; font-weight: 800; color: var(--primary); }
+    .prod-meta { font-size: 11px; color: var(--muted); }
+
+    .cart-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+    .qty-input { width: 58px; padding: 4px; text-align: center; }
+    .summary-line { display: flex; justify-content: space-between; font-size: 13px; margin: 5px 0; }
+    .summary-total { font-size: 18px; font-weight: 800; border-top: 2px solid var(--border); padding-top: 8px; margin-top: 6px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; place-items: center; z-index: 200; padding: 14px; }
+    .modal-backdrop.open { display: grid; }
+    .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 500px; padding: 18px; max-height: 90vh; overflow-y: auto; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full { grid-column: span 2; }
+    .form-group label { font-size: 11px; font-weight: 700; color: var(--muted); }
+
+    .receipt-box { font-family: 'Courier New', monospace; font-size: 12px; border: 1px dashed #9ca3af; padding: 14px; background: #fff; line-height: 1.4; }
+    .receipt-center { text-align: center; }
+    .receipt-line { border-top: 1px dashed #9ca3af; margin: 7px 0; }
+    .gst-table { width: 100%; font-size: 11px; border-collapse: collapse; margin-top: 4px; }
+    .gst-table th, .gst-table td { padding: 3px 2px; border-bottom: 1px dotted #d1d5db; text-align: right; background: transparent; }
+    .gst-table th:first-child, .gst-table td:first-child { text-align: left; }
+
+    .mobile-nav { display: none; }
+    @media (max-width: 860px) {
+      .sidebar { display: none; }
+      .main { padding: 14px 14px 82px; max-height: none; }
+      .pos-layout, .two-col { grid-template-columns: 1fr; }
+      .mobile-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+        background: #064e3b; border-top: 1px solid rgba(255,255,255,0.15);
+        z-index: 150; justify-content: space-around; padding: 6px 4px;
+      }
+      .m-btn {
+        background: none; border: none; color: #a7f3d0; font-size: 10px;
+        display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 6px;
+      }
+      .m-btn.active { color: #fff; font-weight: 700; }
+      .m-btn span { font-size: 18px; }
+    }
+
+    @media print {
+      body * { visibility: hidden; }
+      #receiptModal, #receiptModal * { visibility: visible; }
+      #receiptModal { position: absolute; inset: 0; background: #fff; display: block !important; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">🛒</div>
+      <div><h1 id="sideShopName">FreshMart</h1><span>GST & Khata POS</span></div>
+    </div>
+    <button class="nav-btn active" data-view="dashboard" onclick="switchView('dashboard')">📊 Dashboard</button>
+    <button class="nav-btn" data-view="pos" onclick="switchView('pos')">🧾 GST Billing (POS)</button>
+    <button class="nav-btn" data-view="inventory" onclick="switchView('inventory')">📦 Inventory <span class="nav-badge" id="alertBadge" style="display:none">0</span></button>
+    <button class="nav-btn" data-view="khata" onclick="switchView('khata')">📒 Khata & WhatsApp</button>
+    <button class="nav-btn" data-view="sales" onclick="switchView('sales')">💰 Sales & Tax</button>
+    <button class="nav-btn" data-view="settings" onclick="switchView('settings')">⚙️ Shop Settings</button>
+  </aside>
+
+  <nav class="mobile-nav">
+    <button class="m-btn active" data-view="dashboard" onclick="switchView('dashboard')"><span>📊</span>Home</button>
+    <button class="m-btn" data-view="pos" onclick="switchView('pos')"><span>🧾</span>Bill</button>
+    <button class="m-btn" data-view="inventory" onclick="switchView('inventory')"><span>📦</span>Stock</button>
+    <button class="m-btn" data-view="khata" onclick="switchView('khata')"><span>📒</span>Khata</button>
+    <button class="m-btn" data-view="settings" onclick="switchView('settings')"><span>⚙️</span>Setup</button>
+  </nav>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h2 id="pageTitle">Dashboard</h2>
+        <span id="connStatus" class="status-pill status-ok">● Synced with SQLite</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline btn-sm" onclick="loadAllData()">↻ Sync</button>
+        <button class="btn btn-primary btn-sm" onclick="switchView('pos')">+ New GST Bill</button>
+      </div>
+    </div>
+
+    <section id="view-dashboard" class="view active">
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Today's Sales</div><div class="stat-val" id="statTodaySales">₹0</div><div class="stat-note" id="statTodayBills">0 bills</div></div>
+        <div class="stat-card"><div class="stat-label">Today's Net Profit</div><div class="stat-val" style="color:var(--primary)" id="statTodayProfit">₹0</div><div class="stat-note">Excl. GST</div></div>
+        <div class="stat-card"><div class="stat-label">Pending Khata</div><div class="stat-val" style="color:var(--warning)" id="statTotalCredit">₹0</div><div class="stat-note" id="statCreditCustomers">0 customers</div></div>
+        <div class="stat-card"><div class="stat-label">Today's GST Collected</div><div class="stat-val" id="statTodayGst">₹0</div><div class="stat-note">CGST + SGST</div></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card"><div class="card-header"><span class="card-title">⚠️ Low Stock Alerts</span></div><div id="lowStockList"></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">⏳ Expiry Alerts (≤7 Days)</span></div><div id="expiryAlertList"></div></div>
+      </div>
+    </section>
+
+    <section id="view-pos" class="view">
+      <div class="pos-layout">
+        <div class="card">
+          <input type="text" id="posSearch" placeholder="🔍 Search product or scan SKU & press Enter..." oninput="renderPOS()" onkeydown="handleBarcodeEnter(event)" />
+          <div class="cat-pills" id="posCatPills"></div>
+          <div class="product-grid" id="posProductGrid"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">🧾 GST Bill</span>
+            <button class="btn btn-outline btn-sm" onclick="clearCart()">Clear</button>
+          </div>
+          <div id="cartItems" style="max-height:32vh; overflow-y:auto;"></div>
+
+          <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:8px;">
+            <div class="summary-line"><span>Taxable Value</span><span id="cartTaxable">₹0.00</span></div>
+            <div class="summary-line"><span>CGST + SGST</span><span id="cartGst">₹0.00</span></div>
+            <div class="summary-line" style="align-items:center;">
+              <span>Bill Discount</span>
+              <input type="number" id="cartDiscount" value="0" min="0" style="width:85px; padding:4px 7px; text-align:right;" oninput="renderCart()" />
+            </div>
+            <div class="summary-line summary-total"><span>Payable</span><span id="cartTotal">₹0.00</span></div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Payment Mode</label>
+              <select id="payMode" onchange="toggleKhataSelect()">
+                <option value="Cash">💵 Cash</option>
+                <option value="UPI">📱 UPI</option>
+                <option value="Card">💳 Card</option>
+                <option value="Credit">📒 Credit (Khata)</option>
+              </select>
+            </div>
+            <div class="form-group" id="khataCustBox" style="display:none;">
+              <label>Khata Customer</label>
+              <select id="posCustomerSelect"></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%; justify-content:center; padding:12px;" onclick="completeSale()">✅ Generate GST Invoice</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-inventory" class="view">
+      <div class="card">
+        <div class="card-header">
+          <input type="text" id="invSearch" placeholder="🔍 Search inventory..." style="max-width:250px;" oninput="renderInventory()" />
+          <button class="btn btn-primary btn-sm" onclick="openProductModal()">+ Add Product</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Item / HSN</th><th>GST%</th><th>Price</th><th>Stock</th><th>Expiry</th><th>Actions</th></tr></thead>
+            <tbody id="inventoryTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-khata" class="view">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📒 Customer Credit Book (Khata)</span>
+          <button class="btn btn-primary btn-sm" onclick="openCustomerModal()">+ Add Customer</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Customer</th><th>Phone</th><th>Due Balance</th><th>WhatsApp & Actions</th></tr></thead>
+            <tbody id="khataTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-sales" class="view">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">💰 GST Sales History</span>
+          <input type="text" id="salesSearch" placeholder="🔍 Search invoice #..." style="max-width:220px;" oninput="renderSales()" />
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th>Payment</th><th>Taxable</th><th>GST</th><th>Total</th><th>Profit</th><th>Bill</th></tr></thead>
+            <tbody id="salesTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <div class="card" style="max-width:600px;">
+        <div class="card-header"><span class="card-title">⚙️ Shop, GST & Backend Server Settings</span></div>
+        <form onsubmit="saveSettings(event)">
+          <div class="form-grid">
+            <div class="form-group full">
+              <label>Backend Server URL (For APK, enter Mac IP e.g. http://192.168.1.5:3000)</label>
+              <input type="text" id="setApiUrl" placeholder="Leave blank if running directly on server" />
+            </div>
+            <div class="form-group full"><label>Shop Name</label><input type="text" id="setShopName" required /></div>
+            <div class="form-group"><label>Shop GSTIN</label><input type="text" id="setGstin" placeholder="27ABCDE1234F1Z5" /></div>
+            <div class="form-group"><label>Shop Phone</label><input type="text" id="setPhone" /></div>
+            <div class="form-group full"><label>Shop Address</label><input type="text" id="setAddress" /></div>
+            <div class="form-group"><label>UPI ID (for WhatsApp reminders)</label><input type="text" id="setUpi" placeholder="shopname@upi" /></div>
+            <div class="form-group">
+              <label>GST Pricing Mode</label>
+              <select id="setTaxMode">
+                <option value="1">Tax-Inclusive (MRP includes GST)</option>
+                <option value="0">Tax-Exclusive (Add GST on top)</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">💾 Save Settings</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="productModal">
+    <div class="modal">
+      <div class="card-header"><span class="card-title" id="prodModalTitle">Add Product</span><button class="btn btn-outline btn-sm" onclick="closeModal('productModal')">✕</button></div>
+      <form onsubmit="saveProduct(event)">
+        <input type="hidden" id="prodId" />
+        <div class="form-grid">
+          <div class="form-group full"><label>Product Name *</label><input type="text" id="prodName" required /></div>
+          <div class="form-group"><label>SKU / Barcode</label><input type="text" id="prodSku" /></div>
+          <div class="form-group"><label>HSN Code</label><input type="text" id="prodHsn" placeholder="e.g. 1006" /></div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="prodCat">
+              <option>Grains & Pulses</option><option>Dairy & Bakery</option>
+              <option>Fruits & Veggies</option><option>Snacks & Drinks</option>
+              <option>Spices & Oil</option><option>Household</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>GST Rate (%)</label>
+            <select id="prodGst">
+              <option value="0">0% (Exempt)</option><option value="5">5%</option>
+              <option value="12">12%</option><option value="18">18%</option><option value="28">28%</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Cost Price *</label><input type="number" step="0.01" id="prodCost" required /></div>
+          <div class="form-group"><label>Selling Price *</label><input type="number" step="0.01" id="prodPrice" required /></div>
+          <div class="form-group"><label>Stock *</label><input type="number" step="0.01" id="prodStock" required /></div>
+          <div class="form-group"><label>Unit</label><select id="prodUnit"><option>pcs</option><option>kg</option><option>L</option><option>pack</option></select></div>
+          <div class="form-group"><label>Low Stock Alert</label><input type="number" step="0.01" id="prodMinStock" value="5" /></div>
+          <div class="form-group"><label>Expiry Date</label><input type="date" id="prodExpiry" /></div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">Save Product</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="customerModal">
+    <div class="modal">
+      <div class="card-header"><span class="card-title">Add Khata Customer</span><button class="btn btn-outline btn-sm" onclick="closeModal('customerModal')">✕</button></div>
+      <form onsubmit="saveCustomer(event)">
+        <div class="form-grid">
+          <div class="form-group full"><label>Name *</label><input type="text" id="custName" required /></div>
+          <div class="form-group"><label>WhatsApp Phone *</label><input type="text" id="custPhone" required placeholder="10-digit mobile" /></div>
+          <div class="form-group"><label>Customer GSTIN (Opt)</label><input type="text" id="custGstin" /></div>
+          <div class="form-group full"><label>Opening Balance</label><input type="number" step="0.01" id="custBalance" value="0" /></div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">Save Customer</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="receiptModal">
+    <div class="modal" style="max-width:410px;">
+      <div id="receiptContent" class="receipt-box"></div>
+      <div class="no-print" style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
+        <button class="btn btn-outline" onclick="closeModal('receiptModal')">Close</button>
+        <button class="btn btn-primary" onclick="window.print()">🖨 Print GST Bill</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const isSameOrigin = location.protocol.startsWith('http') && (location.port === '3000' || location.hostname !== 'localhost');
+    const savedApi = localStorage.getItem('freshmart_api_url');
+    let API_BASE = savedApi !== null ? savedApi : (isSameOrigin ? '' : 'http://192.168.1.5:3000');
+    let state = { settings: { shop_name: 'FreshMart', currency: '₹', tax_inclusive: 1 }, products: [], customers: [], sales: [], cart: [], activeCat: 'All' };
+
+    const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+    const fmt = (n) => `${state.settings.currency || '₹'}${round2(n).toFixed(2)}`;
+    const esc = (s) => String(s || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+    async function api(path, options = {}) {
+      const res = await fetch(`${API_BASE}${path}`, { headers: { 'Content-Type': 'application/json' }, ...options });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Server error');
+      return data;
+    }
+
+    async function loadAllData() {
+      const pill = document.getElementById('connStatus');
+      try {
+        const data = await api('/api/bootstrap');
+        state.settings = data.settings;
+        state.products = data.products;
+        state.customers = data.customers;
+        state.sales = data.sales;
+        pill.className = 'status-pill status-ok';
+        pill.textContent = '● Synced with SQLite';
+        renderAll();
+      } catch (err) {
+        pill.className = 'status-pill status-err';
+        pill.textContent = '● Offline / Check Server URL in Setup';
+      }
+    }
+
+    function switchView(v) {
+      document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+      document.getElementById(`view-${v}`).classList.add('active');
+      document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+      const titles = { dashboard: 'Dashboard', pos: 'GST Billing (POS)', inventory: 'Inventory', khata: 'Customer Khata', sales: 'Sales & GST Tax', settings: 'Shop Settings' };
+      document.getElementById('pageTitle').textContent = titles[v];
+      renderAll();
+    }
+
+    function daysUntil(d) {
+      if (!d) return null;
+      const t = new Date(); t.setHours(0,0,0,0);
+      return Math.ceil((new Date(d + 'T00:00:00') - t) / 86400000);
+    }
+
+    function renderDashboard() {
+      const today = new Date().toISOString().split('T')[0];
+      const todaySales = state.sales.filter(s => s.date.startsWith(today));
+      document.getElementById('statTodaySales').textContent = fmt(todaySales.reduce((a, b) => a + b.total, 0));
+      document.getElementById('statTodayBills').textContent = `${todaySales.length} bills today`;
+      document.getElementById('statTodayProfit').textContent = fmt(todaySales.reduce((a, b) => a + b.profit, 0));
+      document.getElementById('statTodayGst').textContent = fmt(todaySales.reduce((a, b) => a + b.cgst_total + b.sgst_total, 0));
+
+      const dueCusts = state.customers.filter(c => c.balance > 0);
+      document.getElementById('statTotalCredit').textContent = fmt(dueCusts.reduce((a, c) => a + c.balance, 0));
+      document.getElementById('statCreditCustomers').textContent = `${dueCusts.length} customers owe`;
+
+      const low = state.products.filter(p => p.stock <= p.min_stock);
+      document.getElementById('lowStockList').innerHTML = low.length ? low.map(p =>
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <span><b>${esc(p.name)}</b> (${p.stock} ${p.unit})</span>
+          <button class="btn btn-outline btn-sm" onclick="quickRestock(${p.id})">+Stock</button>
+        </div>`).join('') : '<p style="font-size:13px;color:var(--muted)">✅ All stock healthy.</p>';
+
+      const exp = state.products.filter(p => { const d = daysUntil(p.expiry); return d !== null && d <= 7; });
+      document.getElementById('expiryAlertList').innerHTML = exp.length ? exp.map(p =>
+        `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <span><b>${esc(p.name)}</b> (${p.expiry})</span>
+          <span class="badge ${daysUntil(p.expiry)<0?'badge-danger':'badge-warn'}">${daysUntil(p.expiry)<0?'Expired':daysUntil(p.expiry)+'d'}</span>
+        </div>`).join('') : '<p style="font-size:13px;color:var(--muted)">✅ No upcoming expiries.</p>';
+
+      const alertCount = new Set([...low.map(i=>i.id), ...exp.map(i=>i.id)]).size;
+      const b = document.getElementById('alertBadge');
+      b.style.display = alertCount ? 'inline-block' : 'none';
+      b.textContent = alertCount;
+    }
+
+    function renderPOS() {
+      const cats = ['All', ...new Set(state.products.map(p => p.category))];
+      document.getElementById('posCatPills').innerHTML = cats.map(c =>
+        `<button class="pill ${state.activeCat===c?'active':''}" onclick="state.activeCat='${esc(c)}';renderPOS()">${esc(c)}</button>`
+      ).join('');
+      const q = document.getElementById('posSearch').value.trim().toLowerCase();
+      const list = state.products.filter(p => (state.activeCat==='All'||p.category===state.activeCat) && (!q||p.name.toLowerCase().includes(q)||(p.sku||'').toLowerCase().includes(q)));
+      document.getElementById('posProductGrid').innerHTML = list.map(p => `
+        <div class="prod-card ${p.stock<=0?'out':''}" onclick="addToCart(${p.id})">
+          <div class="prod-meta">${esc(p.category)} • GST ${p.gst_rate}%</div>
+          <div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-price">${fmt(p.price)}/${p.unit}</div>
+          <div class="prod-meta">Stock: ${p.stock} ${p.unit}</div>
+        </div>
+      `).join('');
+    }
+
+    function handleBarcodeEnter(e) {
+      if (e.key !== 'Enter') return;
+      const q = e.target.value.trim().toLowerCase();
+      const m = state.products.find(p => (p.sku && p.sku.toLowerCase() === q) || p.name.toLowerCase() === q);
+      if (m) { addToCart(m.id); e.target.value = ''; renderPOS(); }
+    }
+
+    function addToCart(id) {
+      const p = state.products.find(x => x.id === id);
+      if (!p || p.stock <= 0) return alert('Out of stock!');
+      const ex = state.cart.find(c => c.id === id);
+      if (ex) {
+        if (ex.qty + 1 > p.stock) return alert('Exceeds available stock!');
+        ex.qty = round2(ex.qty + 1);
+      } else {
+        state.cart.push({ id: p.id, name: p.name, price: p.price, gst_rate: p.gst_rate, unit: p.unit, qty: 1 });
+      }
+      renderCart();
+    }
+
+    function updateQty(id, val) {
+      const q = parseFloat(val);
+      const p = state.products.find(x => x.id === id);
+      if (isNaN(q) || q <= 0) state.cart = state.cart.filter(c => c.id !== id);
+      else if (q > p.stock) alert(`Only ${p.stock} available!`);
+      else state.cart.find(c => c.id === id).qty = round2(q);
+      renderCart();
+    }
+
+    function clearCart() { state.cart = []; document.getElementById('cartDiscount').value = 0; renderCart(); }
+
+    function renderCart() {
+      const box = document.getElementById('cartItems');
+      box.innerHTML = state.cart.length ? state.cart.map(c => `
+        <div class="cart-row">
+          <div><b>${esc(c.name)}</b><div style="font-size:11px;color:var(--muted)">${fmt(c.price)} • GST ${c.gst_rate}%</div></div>
+          <input type="number" step="0.25" class="qty-input" value="${c.qty}" onchange="updateQty(${c.id}, this.value)" />
+          <b>${fmt(c.price * c.qty)}</b>
+          <button class="btn btn-outline btn-sm" onclick="updateQty(${c.id}, 0)">✕</button>
+        </div>
+      `).join('') : '<p style="text-align:center;color:var(--muted);padding:16px 0;font-size:13px;">Tap items to add</p>';
+
+      const incl = Boolean(state.settings.tax_inclusive);
+      let taxable = 0, gst = 0, gross = 0;
+      state.cart.forEach(c => {
+        const base = c.price * c.qty;
+        const r = c.gst_rate || 0;
+        if (incl) {
+          const t = r > 0 ? base / (1 + r / 100) : base;
+          taxable += t; gst += (base - t); gross += base;
+        } else {
+          const tx = base * (r / 100);
+          taxable += base; gst += tx; gross += (base + tx);
+        }
+      });
+      const disc = Math.max(0, parseFloat(document.getElementById('cartDiscount').value) || 0);
+      document.getElementById('cartTaxable').textContent = fmt(taxable);
+      document.getElementById('cartGst').textContent = fmt(gst);
+      document.getElementById('cartTotal').textContent = fmt(Math.max(0, gross - disc));
+
+      document.getElementById('posCustomerSelect').innerHTML = state.customers.map(c =>
+        `<option value="${c.id}">${esc(c.name)} (${fmt(c.balance)} due)</option>`
+      ).join('');
+    }
+
+    function toggleKhataSelect() {
+      document.getElementById('khataCustBox').style.display = document.getElementById('payMode').value === 'Credit' ? 'flex' : 'none';
+    }
+
+    async function completeSale() {
+      if (!state.cart.length) return alert('Cart is empty!');
+      const pay_mode = document.getElementById('payMode').value;
+      const cid = pay_mode === 'Credit' ? Number(document.getElementById('posCustomerSelect').value) : null;
+      const cust = state.customers.find(c => c.id === cid);
+      if (pay_mode === 'Credit' && !cust) return alert('Add/select a Khata customer!');
+
+      try {
+        const sale = await api('/api/sales', {
+          method: 'POST',
+          body: JSON.stringify({
+            items: state.cart.map(c => ({ id: c.id, qty: c.qty })),
+            discount: Number(document.getElementById('cartDiscount').value) || 0,
+            pay_mode,
+            customer_id: cid,
+            customer_name: cust ? cust.name : 'Walk-in Customer',
+            customer_gstin: cust ? cust.gstin : ''
+          })
+        });
+        clearCart();
+        await loadAllData();
+        showReceipt(sale);
+      } catch (e) { alert(e.message); }
+    }
+
+    function showReceipt(inv) {
+      const s = state.settings;
+      const slabs = {};
+      inv.items.forEach(it => {
+        const r = it.gst_rate || 0;
+        if (!slabs[r]) slabs[r] = { taxable: 0, cgst: 0, sgst: 0 };
+        slabs[r].taxable += it.taxable;
+        slabs[r].cgst += it.cgst;
+        slabs[r].sgst += it.sgst;
+      });
+
+      document.getElementById('receiptContent').innerHTML = `
+        <div class="receipt-center">
+          <strong style="font-size:15px;">${esc(s.shop_name)}</strong><br/>
+          <span>${esc(s.address || '')}</span><br/>
+          <span>Ph: ${esc(s.phone || '')} | GSTIN: ${esc(s.gstin || 'N/A')}</span><br/>
+          <strong>TAX INVOICE</strong>
+        </div>
+        <div class="receipt-line"></div>
+        <div>Bill: <b>${inv.invoice_no}</b> | ${new Date(inv.date).toLocaleString()}</div>
+        <div>Customer: ${esc(inv.customer_name)} ${inv.customer_gstin ? `(GSTIN: ${esc(inv.customer_gstin)})` : ''}</div>
+        <div>Pay Mode: <b>${inv.pay_mode}</b></div>
+        <div class="receipt-line"></div>
+        ${inv.items.map(i => `
+          <div style="display:flex;justify-content:space-between;margin:3px 0;">
+            <span>${esc(i.name)} (${i.qty}${i.unit}) @${i.gst_rate}%</span>
+            <span>${fmt(i.total)}</span>
+          </div>
+        `).join('')}
+        <div class="receipt-line"></div>
+        <div style="font-weight:700;font-size:11px;">GST BREAKDOWN</div>
+        <table class="gst-table">
+          <thead><tr><th>Rate</th><th>Taxable</th><th>CGST</th><th>SGST</th></tr></thead>
+          <tbody>
+            ${Object.entries(slabs).map(([r, v]) => `
+              <tr><td>${r}%</td><td>${round2(v.taxable).toFixed(2)}</td><td>${round2(v.cgst).toFixed(2)}</td><td>${round2(v.sgst).toFixed(2)}</td></tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="receipt-line"></div>
+        ${inv.discount > 0 ? `<div style="display:flex;justify-content:space-between;"><span>Bill Discount</span><span>-${fmt(inv.discount)}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;">
+          <span>GRAND TOTAL</span><span>${fmt(inv.total)}</span>
+        </div>
+        <div class="receipt-line"></div>
+        <div class="receipt-center" style="font-size:11px;">Thank You! Visit Again.</div>
+      `;
+      document.getElementById('receiptModal').classList.add('open');
+    }
+
+    function renderInventory() {
+      const q = document.getElementById('invSearch').value.trim().toLowerCase();
+      const list = state.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q));
+      document.getElementById('inventoryTable').innerHTML = list.map(p => `
+        <tr>
+          <td><b>${esc(p.name)}</b><div style="font-size:11px;color:var(--muted)">HSN: ${esc(p.hsn||'—')} | SKU: ${esc(p.sku||'—')}</div></td>
+          <td>${p.gst_rate}%</td>
+          <td>${fmt(p.price)}/${p.unit}</td>
+          <td><span class="badge ${p.stock<=p.min_stock?'badge-warn':'badge-ok'}">${p.stock} ${p.unit}</span></td>
+          <td>${p.expiry || '—'}</td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="quickRestock(${p.id})">+Stock</button>
+            <button class="btn btn-outline btn-sm" onclick="openProductModal(${p.id})">Edit</button>
+            <button class="btn btn-outline btn-sm" style="color:var(--danger)" onclick="deleteProduct(${p.id})">Del</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openProductModal(id = null) {
+      document.querySelector('#productModal form').reset();
+      document.getElementById('prodId').value = '';
+      document.getElementById('prodModalTitle').textContent = id ? 'Edit Product' : 'Add Product';
+      if (id) {
+        const p = state.products.find(x => x.id === id);
+        if (p) {
+          document.getElementById('prodId').value = p.id;
+          document.getElementById('prodName').value = p.name;
+          document.getElementById('prodSku').value = p.sku || '';
+          document.getElementById('prodHsn').value = p.hsn || '';
+          document.getElementById('prodCat').value = p.category;
+          document.getElementById('prodGst').value = p.gst_rate;
+          document.getElementById('prodCost').value = p.cost;
+          document.getElementById('prodPrice').value = p.price;
+          document.getElementById('prodStock').value = p.stock;
+          document.getElementById('prodUnit').value = p.unit;
+          document.getElementById('prodMinStock').value = p.min_stock;
+          document.getElementById('prodExpiry').value = p.expiry || '';
+        }
+      }
+      document.getElementById('productModal').classList.add('open');
+    }
+
+    async function saveProduct(e) {
+      e.preventDefault();
+      const id = document.getElementById('prodId').value;
+      const body = {
+        name: document.getElementById('prodName').value.trim(),
+        sku: document.getElementById('prodSku').value.trim(),
+        hsn: document.getElementById('prodHsn').value.trim(),
+        category: document.getElementById('prodCat').value,
+        gst_rate: Number(document.getElementById('prodGst').value),
+        cost: Number(document.getElementById('prodCost').value),
+        price: Number(document.getElementById('prodPrice').value),
+        stock: Number(document.getElementById('prodStock').value),
+        unit: document.getElementById('prodUnit').value,
+        min_stock: Number(document.getElementById('prodMinStock').value),
+        expiry: document.getElementById('prodExpiry').value
+      };
+      await api(id ? `/api/products/${id}` : '/api/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+      closeModal('productModal');
+      loadAllData();
+    }
+
+    async function quickRestock(id) {
+      const qty = prompt('Add stock quantity:', '10');
+      if (!qty || Number(qty) <= 0) return;
+      await api(`/api/products/${id}/restock`, { method: 'POST', body: JSON.stringify({ qty: Number(qty) }) });
+      loadAllData();
+    }
+
+    async function deleteProduct(id) {
+      if (!confirm('Delete this product?')) return;
+      await api(`/api/products/${id}`, { method: 'DELETE' });
+      loadAllData();
+    }
+
+    function getWhatsAppLink(cust) {
+      let digits = String(cust.phone || '').replace(/\D/g, '');
+      if (digits.length === 10) digits = '91' + digits;
+      const s = state.settings;
+      const msg = `Namaste ${cust.name},\nThis is a gentle payment reminder from *${s.shop_name}*.\n\nPending Khata Balance: *${fmt(cust.balance)}*${s.upi_id ? `\n\nYou can pay via UPI: *${s.upi_id}*` : ''}\n\nThank you!`;
+      return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+    }
+
+    function renderKhata() {
+      document.getElementById('khataTable').innerHTML = state.customers.map(c => `
+        <tr>
+          <td><b>${esc(c.name)}</b>${c.gstin?`<div style="font-size:11px;color:var(--muted)">GSTIN: ${esc(c.gstin)}</div>`:''}</td>
+          <td>${esc(c.phone)}</td>
+          <td><span class="badge ${c.balance>0?'badge-warn':'badge-ok'}">${fmt(c.balance)}</span></td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${c.balance > 0 ? `
+              <a class="btn btn-wa btn-sm" href="${getWhatsAppLink(c)}" target="_blank">📱 WhatsApp Remind</a>
+              <button class="btn btn-primary btn-sm" onclick="payKhata(${c.id}, ${c.balance})">Receive Pay</button>
+            ` : '<span style="font-size:12px;color:var(--muted)">Settled</span>'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openCustomerModal() { document.querySelector('#customerModal form').reset(); document.getElementById('customerModal').classList.add('open'); }
+    async function saveCustomer(e) {
+      e.preventDefault();
+      await api('/api/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('custName').value.trim(),
+          phone: document.getElementById('custPhone').value.trim(),
+          gstin: document.getElementById('custGstin').value.trim(),
+          balance: Number(document.getElementById('custBalance').value) || 0
+        })
+      });
+      closeModal('customerModal');
+      loadAllData();
+    }
+
+    async function payKhata(id, due) {
+      const amt = prompt(`Enter payment received (Due: ${fmt(due)}):`, due);
+      if (!amt || Number(amt) <= 0) return;
+      await api(`/api/customers/${id}/pay`, { method: 'POST', body: JSON.stringify({ amount: Number(amt) }) });
+      loadAllData();
+    }
+
+    function renderSales() {
+      const q = document.getElementById('salesSearch').value.trim().toLowerCase();
+      const list = state.sales.filter(s => !q || s.invoice_no.toLowerCase().includes(q) || s.customer_name.toLowerCase().includes(q));
+      document.getElementById('salesTable').innerHTML = list.map(s => `
+        <tr>
+          <td><b>${s.invoice_no}</b></td>
+          <td>${new Date(s.date).toLocaleDateString()}</td>
+          <td><span class="badge badge-info">${s.pay_mode}</span></td>
+          <td>${fmt(s.taxable_total)}</td>
+          <td>${fmt(s.cgst_total + s.sgst_total)}</td>
+          <td><b>${fmt(s.total)}</b></td>
+          <td style="color:var(--primary);font-weight:700;">+${fmt(s.profit)}</td>
+          <td><button class="btn btn-outline btn-sm" onclick='showReceipt(${JSON.stringify(s).replace(/'/g,"&#39;")})'>GST Bill</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function renderSettings() {
+      const s = state.settings;
+      document.getElementById('sideShopName').textContent = s.shop_name || 'FreshMart';
+      document.getElementById('setApiUrl').value = API_BASE;
+      document.getElementById('setShopName').value = s.shop_name || '';
+      document.getElementById('setGstin').value = s.gstin || '';
+      document.getElementById('setPhone').value = s.phone || '';
+      document.getElementById('setAddress').value = s.address || '';
+      document.getElementById('setUpi').value = s.upi_id || '';
+      document.getElementById('setTaxMode').value = s.tax_inclusive ? '1' : '0';
+    }
+
+    async function saveSettings(e) {
+      e.preventDefault();
+      const newUrl = document.getElementById('setApiUrl').value.trim().replace(/\/$/, '');
+      API_BASE = newUrl;
+      localStorage.setItem('freshmart_api_url', newUrl);
+      await api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          shop_name: document.getElementById('setShopName').value.trim(),
+          gstin: document.getElementById('setGstin').value.trim(),
+          phone: document.getElementById('setPhone').value.trim(),
+          address: document.getElementById('setAddress').value.trim(),
+          upi_id: document.getElementById('setUpi').value.trim(),
+          currency: '₹',
+          tax_inclusive: document.getElementById('setTaxMode').value === '1'
+        })
+      });
+      alert('Settings saved!');
+      loadAllData();
+    }
+
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+    function renderAll() { renderDashboard(); renderPOS(); renderCart(); renderInventory(); renderKhata(); renderSales(); renderSettings(); }
+    loadAllData();
+  </script>
+</body>
+</html>
